@@ -72,10 +72,10 @@
   </div>
   <div id="acts">
     <div class="btn" id="btnA" data-k="a">けってい</div>
-    <div class="btn" id="btnB" data-k="b">キャンセル</div>
+    <div class="btn" id="btnB" data-k="b">メニュー</div>
   </div>
 </div>
-<div class="hint">キーボード: 矢印キー / Z=けってい / X=キャンセル</div>
+<div class="hint">キーボード: 矢印キー / Z=けってい / X=メニュー・キャンセル</div>
 
 <script>
 /* =========================================================
@@ -178,7 +178,7 @@ const P = {
   map:'village', x:9, y:11, dir:'up',
   px:9*TILE, py:11*TILE, moving:false, mt:0, fx:0, fy:0, tx:0, ty:0,
   lv:1, exp:0, hp:32, mhp:32, mp:10, mmp:10, atk:9, def:5,
-  gold:24, herb:3, water:0, seed:0, ring:false, bossDead:false, steps:0, encCount:12
+  gold:24, herb:3, water:0, seed:0, seedItem:0, ring:false, bossDead:false, steps:0, encCount:12
 };
 function statsForLv(l){ return {mhp:24+l*8, mmp:7+l*3, atk:6+l*3, def:3+l*2}; }
 function applyLv(){ const s = statsForLv(P.lv); P.mhp=s.mhp; P.mmp=s.mmp; P.atk=s.atk+(P.ring?5:0)+P.seed; P.def=s.def; }
@@ -218,6 +218,54 @@ function cancelChoice(){
   const c = CH.cancel; CH = null; elCmd.style.display='none'; mode='field'; if(c) c();
 }
 
+/* ---------- フィールドメニュー（キャンセルボタンで開く） ---------- */
+function openMenu(){
+  choose([
+    {t:'どうぐ', f:openItems},
+    {t:'まほう', f:openFieldMagic},
+    {t:'つよさ', f:showParam},
+    {t:'とじる', f:()=>{}}
+  ], null);
+}
+function openItems(){
+  const list = [];
+  if(P.herb > 0) list.push({t:`やくそう (${P.herb})`, f:()=>{
+    if(P.hp >= P.mhp) return say(['HPは まんたんだ。'], openItems);
+    P.herb--; const h = Math.min(P.mhp-P.hp, 32); P.hp += h;
+    say(['やくそうを つかった！', `HPが ${h} かいふくした！`], openItems);
+  }});
+  if(P.water > 0) list.push({t:`まほうのみず (${P.water})`, f:()=>{
+    if(P.mp >= P.mmp) return say(['MPは まんたんだ。'], openItems);
+    P.water--; const h = Math.min(P.mmp-P.mp, 20); P.mp += h;
+    say(['まほうのみずを のんだ！', `MPが ${h} かいふくした！`], openItems);
+  }});
+  if(P.seedItem > 0) list.push({t:`ちからのたね (${P.seedItem})`, f:()=>{
+    P.seedItem--; P.seed += 2; applyLv();
+    say(['ちからのたねを たべた！', `こうげきりょくが 2 あがった！（いま ${P.atk}）`], openItems);
+  }});
+  if(!list.length) return say(['どうぐを なにも もっていない。'], openMenu);
+  list.push({t:'もどる', f:openMenu});
+  choose(list, openMenu);
+}
+function openFieldMagic(){
+  choose([
+    {t:'ヒール (MP4)', f:()=>{
+      if(P.mp < 4) return say(['MPが たりない。'], openFieldMagic);
+      if(P.hp >= P.mhp) return say(['HPは まんたんだ。'], openFieldMagic);
+      P.mp -= 4; const h = Math.min(P.mhp-P.hp, 16+P.lv*3); P.hp += h;
+      say(['ヒール！', `HPが ${h} かいふくした！`], openFieldMagic);
+    }},
+    {t:'もどる', f:openMenu}
+  ], openMenu);
+}
+function showParam(){
+  const next = P.lv < LVUP.length-1 ? `つぎのレベルまで ${LVUP[P.lv]-P.exp}` : 'レベル さいだい';
+  say([`ゆうしゃ　Lv ${P.lv}${P.ring?'　【ちからのゆびわ】':''}`,
+       `HP ${P.hp}/${P.mhp}　MP ${P.mp}/${P.mmp}`,
+       `こうげき ${P.atk}　しゅび ${P.def}　${P.gold}G`,
+       next], openMenu);
+}
+
 /* ---------- 宿屋 ---------- */
 const INN = 12;
 function openInn(){
@@ -237,7 +285,7 @@ function openInn(){
 const GOODS = [
   {name:'やくそう',     price: 8, info:'HPを32かいふく', buy:()=>P.herb++},
   {name:'まほうのみず', price:18, info:'MPを20かいふく', buy:()=>P.water++},
-  {name:'ちからのたね', price:60, info:'こうげきが2あがる', buy:()=>{P.seed+=2; applyLv();}}
+  {name:'ちからのたね', price:60, info:'こうげきが2あがる', buy:()=>P.seedItem++}
 ];
 let shopSel = 0;                     // カーソル位置を覚えておく（連続購入をラクに）
 function openShop(first){
@@ -521,7 +569,7 @@ function press(k){
     else if(k==='b') cancelChoice();
     return;
   }
-  if(mode==='field'){ if(k==='a') interact(); }
+  if(mode==='field'){ if(k==='a') interact(); else if(k==='b') openMenu(); }
 }
 document.addEventListener('keydown', e => {
   const map = {ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',
