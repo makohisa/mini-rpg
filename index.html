@@ -178,10 +178,10 @@ const P = {
   map:'village', x:9, y:11, dir:'up',
   px:9*TILE, py:11*TILE, moving:false, mt:0, fx:0, fy:0, tx:0, ty:0,
   lv:1, exp:0, hp:32, mhp:32, mp:10, mmp:10, atk:9, def:5,
-  gold:24, herb:3, ring:false, bossDead:false, steps:0, encCount:12
+  gold:24, herb:3, water:0, seed:0, ring:false, bossDead:false, steps:0, encCount:12
 };
 function statsForLv(l){ return {mhp:24+l*8, mmp:7+l*3, atk:6+l*3, def:3+l*2}; }
-function applyLv(){ const s = statsForLv(P.lv); P.mhp=s.mhp; P.mmp=s.mmp; P.atk=s.atk+(P.ring?5:0); P.def=s.def; }
+function applyLv(){ const s = statsForLv(P.lv); P.mhp=s.mhp; P.mmp=s.mmp; P.atk=s.atk+(P.ring?5:0)+P.seed; P.def=s.def; }
 applyLv(); P.hp=P.mhp; P.mp=P.mmp;
 
 /* ---------- ③ 敵データ ---------- */
@@ -200,6 +200,63 @@ let msgQueue = [], msgDone = null;
 let B = null;                // 戦闘中のデータ
 const elMsg = document.getElementById('msg'), elMsgT = document.getElementById('msgtext');
 const elCmd = document.getElementById('cmd'), elSt = document.getElementById('status'), elEb = document.getElementById('ebar');
+
+/* ---------- 選択ウィンドウ（はい/いいえ・商品リスト共用） ---------- */
+let CH = null;                       // {list:[{t:表示, f:選んだときの処理}], sel, cancel}
+function choose(list, cancel, sel){
+  CH = {list, sel:Math.min(sel||0, list.length-1), cancel}; mode = 'choice'; showChoice();
+}
+function showChoice(){
+  if(!CH){ elCmd.style.display='none'; return; }
+  elCmd.style.display='block';
+  elCmd.innerHTML = CH.list.map((o,i)=>`<div class="${i===CH.sel?'sel':''}">${o.t}</div>`).join('');
+}
+function pickChoice(i){
+  const f = CH.list[i].f; CH = null; elCmd.style.display='none'; mode='field'; f();
+}
+function cancelChoice(){
+  const c = CH.cancel; CH = null; elCmd.style.display='none'; mode='field'; if(c) c();
+}
+
+/* ---------- 宿屋 ---------- */
+const INN = 12;
+function openInn(){
+  say(['やどやのおやじ:', `「ひとばん ${INN}ゴールドだ。`, '　とまって いくかい？」'], () => {
+    choose([
+      {t:'とまる', f:()=>{
+        if(P.gold < INN) return say(['やどやのおやじ:','「おかねが たりないよ。」']);
+        P.gold -= INN; P.hp = P.mhp; P.mp = P.mmp;
+        say(['～ぐっすり ねむった～','HPとMPが ぜんかいした！']);
+      }},
+      {t:'やめる', f:()=>say(['やどやのおやじ:','「また どうぞ。」'])}
+    ], ()=>say(['やどやのおやじ:','「また どうぞ。」']));
+  });
+}
+
+/* ---------- 道具屋 ---------- */
+const GOODS = [
+  {name:'やくそう',     price: 8, info:'HPを32かいふく', buy:()=>P.herb++},
+  {name:'まほうのみず', price:18, info:'MPを20かいふく', buy:()=>P.water++},
+  {name:'ちからのたね', price:60, info:'こうげきが2あがる', buy:()=>{P.seed+=2; applyLv();}}
+];
+let shopSel = 0;                     // カーソル位置を覚えておく（連続購入をラクに）
+function openShop(first){
+  const show = () => {
+    const list = GOODS.map((it, idx) => ({
+      t: `${it.name} ${it.price}G`,
+      f: () => {
+        shopSel = idx;
+        if(P.gold < it.price) return say(['どうぐや:','「おかねが たりないねぇ。」'], ()=>openShop(false));
+        P.gold -= it.price; it.buy();
+        say([`${it.name}を かった！`, `のこり ${P.gold}ゴールド`], ()=>openShop(false));
+      }
+    }));
+    list.push({t:'やめる', f:()=>{ shopSel=0; say(['どうぐや:','「まいど。」']); }});
+    choose(list, ()=>{ shopSel=0; say(['どうぐや:','「まいど。」']); }, shopSel);
+  };
+  if(first) say(['どうぐや:','「なにを かうかね？」'], show);
+  else show();
+}
 
 function say(lines, after){
   msgQueue = msgQueue.concat(lines); msgDone = after || msgDone;
@@ -312,15 +369,9 @@ function interact(){
   const fx = P.x+d[0], fy = P.y+d[1], M = MAPS[P.map];
   const npc = (M.npcs||[]).find(n => n.x===fx && n.y===fy);
   if(npc){
-    if(npc.inn){
-      if(P.gold >= 12){ P.gold-=12; P.hp=P.mhp; P.mp=P.mmp;
-        say(['やどやのおやじ:','「12ゴールドで やすんでいきな。」','～ぐっすり ねむった～','HPとMPが ぜんかいした！']); }
-      else say(['やどやのおやじ:','「おかねが たりないよ。」']);
-    } else if(npc.shop){
-      if(P.gold >= 8){ P.gold-=8; P.herb++;
-        say(['どうぐや:','「やくそう 8ゴールドだよ。」',`やくそうを かった！ もちもの: ${P.herb}こ`]); }
-      else say(['どうぐや:','「おかねが たりないねぇ。」']);
-    } else say([`${npc.name}:`].concat(npc.line.map(l => '「'+l+'」')));
+    if(npc.inn) openInn();
+    else if(npc.shop) openShop(true);
+    else say([`${npc.name}:`].concat(npc.line.map(l => '「'+l+'」')));
     return;
   }
   const key = fx+','+fy;
@@ -345,7 +396,7 @@ const ROOT = ['たたかう','まほう','どうぐ','にげる'];
 const MAGIC = ['ファイア (MP3)','ヒール (MP4)','もどる'];
 function showCmd(){
   if(B.lock){ elCmd.style.display='none'; return; }
-  const list = B.menu==='root' ? ROOT : B.menu==='magic' ? MAGIC : [`やくそう (${P.herb})`,'もどる'];
+  const list = B.menu==='root' ? ROOT : B.menu==='magic' ? MAGIC : [`やくそう (${P.herb})`,`まほうのみず (${P.water})`,'もどる'];
   elCmd.style.display='block';
   elCmd.innerHTML = list.map((s,i)=>`<div class="${i===B.sel?'sel':''}">${s}</div>`).join('');
 }
@@ -379,6 +430,10 @@ function playerAction(){
       if(P.herb<=0) return battleSay(['やくそうが ない！'], ()=>{B.lock=false;B.menu='root';B.sel=0;showCmd();});
       P.herb--; const h = Math.min(P.mhp-P.hp,32); P.hp+=h;
       battleSay(['やくそうを つかった！',`HPが ${h} かいふくした！`], afterPlayer);
+    } else if(B.sel===1){
+      if(P.water<=0) return battleSay(['まほうのみずが ない！'], ()=>{B.lock=false;B.menu='root';B.sel=0;showCmd();});
+      P.water--; const h = Math.min(P.mmp-P.mp,20); P.mp+=h;
+      battleSay(['まほうのみずを のんだ！',`MPが ${h} かいふくした！`], afterPlayer);
     } else { B.menu='root'; B.sel=0; showCmd(); }
   }
 }
@@ -451,11 +506,19 @@ function press(k){
     return;
   }
   if(mode==='battle'){
-    const len = B.menu==='root'?4 : B.menu==='magic'?3 : 2;
+    const len = B.menu==='root'?4 : B.menu==='magic'?3 : 3;
     if(k==='up') B.sel=(B.sel+len-1)%len, showCmd();
     else if(k==='down') B.sel=(B.sel+1)%len, showCmd();
     else if(k==='a') playerAction();
     else if(k==='b'){ if(B.menu!=='root'){ B.menu='root'; B.sel=0; showCmd(); } }
+    return;
+  }
+  if(mode==='choice'){
+    const n = CH.list.length;
+    if(k==='up'){ CH.sel=(CH.sel+n-1)%n; showChoice(); }
+    else if(k==='down'){ CH.sel=(CH.sel+1)%n; showChoice(); }
+    else if(k==='a') pickChoice(CH.sel);
+    else if(k==='b') cancelChoice();
     return;
   }
   if(mode==='field'){ if(k==='a') interact(); }
@@ -484,9 +547,11 @@ document.querySelectorAll('[data-k]').forEach(el => {
   el.addEventListener('mouseleave', off);
 });
 elCmd.addEventListener('click', e => {
-  if(mode!=='battle'||!B||B.lock) return;
   const i = [...elCmd.children].indexOf(e.target.closest('div'));
-  if(i>=0){ B.sel=i; showCmd(); playerAction(); }
+  if(i < 0) return;
+  if(mode==='choice' && CH){ CH.sel=i; showChoice(); pickChoice(i); return; }
+  if(mode!=='battle'||!B||B.lock) return;
+  B.sel=i; showCmd(); playerAction();
 });
 elMsg.addEventListener('click', () => press('a'));
 
